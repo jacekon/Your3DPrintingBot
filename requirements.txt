@@ -1,0 +1,17 @@
+# Telegram
+python-telegram-bot>=21.0
+
+# Async HTTP and WebSocket
+httpx>=0.27.0
+websockets>=12.0
+
+# HTML parsing for link metadata
+beautifulsoup4>=4.12.0
+
+# Config
+python-dotenv>=1.0.0
+pydantic-settings>=2.0.0
+
+# LLM (choose one or add as needed)
+# openai>=1.0.0
+# ollama  # if using Ollama
