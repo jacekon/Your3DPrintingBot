@@ -193,6 +193,8 @@ class IntentParser:
                 response = response.split("```json")[1].split("```")[0].strip()
             elif "```" in response:
                 response = response.split("```")[1].split("```")[0].strip()
+            # Some LLMs emit \/ in URLs (invalid JSON); normalize to /
+            response = response.replace(r"\/", "/")
 
             intent_data = json.loads(response)
 

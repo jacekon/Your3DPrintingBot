@@ -39,3 +39,6 @@ dist/
 # Logs
 *.log
 logs/
+
+# Fetched job data (STLs per job)
+data/
