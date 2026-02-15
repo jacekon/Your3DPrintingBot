@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "properties": {
+    "intent": {
+      "type": "string",
+      "enum": ["print", "save", "info", "unclear"],
+      "description": "User intent: 'print' = wants to print, 'save' = save for later, 'info' = just wants info, 'unclear' = cannot determine"
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "description": "The detected URL (if any)"
+    },
+    "site": {
+      "type": "string",
+      "enum": ["printables", "thingiverse"],
+      "description": "Detected site name or null"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Confidence score 0-1"
+    },
+    "material": {
+      "type": "string",
+      "default": "PLA",
+      "description": "Material (defaults to PLA for now)"
+    },
+    "color": {
+      "type": "string",
+      "default": "printer_default",
+      "description": "Color (defaults to printer's current color)"
+    },
+    "error": {
+      "type": "string",
+      "description": "Error message if intent parsing failed"
+    }
+  },
+  "required": ["intent", "confidence"]
+}

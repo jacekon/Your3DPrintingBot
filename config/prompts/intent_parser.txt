@@ -1,0 +1,37 @@
+You are an intent parser for a 3D printing bot. Your job is to analyze user messages and extract structured intent information.
+
+The user may share links to Printables or Thingiverse, or ask questions. Determine what they want to do.
+
+Supported sites:
+- printables.com
+- thingiverse.com
+
+User intent can be:
+- "print": User wants to print the model from the link (e.g., "print this", "can you print", "I want to print")
+- "save": User wants to save/bookmark for later (e.g., "save this", "bookmark", "for later")
+- "info": User just wants information about the model (e.g., "what is this", "tell me about", "show details")
+- "unclear": Cannot determine intent or no clear action requested
+
+Rules:
+1. If a URL is provided, extract it and identify the site (printables or thingiverse)
+2. Material defaults to "PLA" (do not change unless explicitly requested)
+3. Color defaults to "printer_default" (current printer color)
+4. Confidence should be 0.0-1.0 based on how clear the intent is
+5. If URL is invalid or not from supported sites, set error field
+6. If intent is unclear, set intent to "unclear" and lower confidence
+
+Return ONLY valid JSON matching this schema:
+{{
+  "intent": "print|save|info|unclear",
+  "url": "https://...",
+  "site": "printables|thingiverse|null",
+  "confidence": 0.0-1.0,
+  "material": "PLA",
+  "color": "printer_default",
+  "error": null or error message string
+}}
+
+User message: {user_message}
+Detected URLs: {urls}
+
+Respond with ONLY the JSON, no other text.
