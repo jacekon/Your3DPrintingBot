@@ -1,9 +1,9 @@
 """Example script to test the Intent Parser."""
-import asyncio
 import json
 import logging
 import sys
 from pathlib import Path
+import pytest
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -14,6 +14,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+@pytest.mark.asyncio
 async def test_intent_parser():
     """Test the intent parser with various messages."""
     async with IntentParser() as parser:
@@ -36,9 +37,10 @@ async def test_intent_parser():
             try:
                 intent = await parser.parse(message)
                 print(json.dumps(intent, indent=2))
+                # Basic assertions
+                assert "intent" in intent
+                assert "confidence" in intent
             except Exception as e:
                 print(f"ERROR: {e}")
+                raise
 
-
-if __name__ == "__main__":
-    asyncio.run(test_intent_parser())

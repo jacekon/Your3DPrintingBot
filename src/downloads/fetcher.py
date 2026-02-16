@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import zipfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -101,19 +102,71 @@ def _safe_filename(name: str) -> str:
     return re.sub(r'[<>:"/\\|?*]', "_", name).strip() or DEFAULT_STL_FILENAME
 
 
+def _generate_job_id(user_id: int, jobs_dir: Path | None = None) -> str:
+    """
+    Generate structured job ID: yyyy.mm.dd-userid-increment.
+    
+    Args:
+        user_id: Telegram user ID
+        jobs_dir: Directory where jobs are stored
+    
+    Returns:
+        Job ID string in format: 2026.02.16-123456-001
+    """
+    jobs_dir = jobs_dir or DEFAULT_JOBS_DIR
+    today = datetime.now().strftime("%Y.%m.%d")
+    prefix = f"{today}-{user_id}-"
+    
+    # Find existing jobs for this user today
+    if jobs_dir.exists():
+        existing = list(jobs_dir.glob(f"{prefix}*"))
+        if existing:
+            # Extract increment numbers and find max
+            increments = []
+            for job_dir in existing:
+                try:
+                    # Extract the increment part (last component after last dash)
+                    parts = job_dir.name.split("-")
+                    if len(parts) >= 3:
+                        increments.append(int(parts[-1]))
+                except (ValueError, IndexError):
+                    continue
+            next_increment = max(increments) + 1 if increments else 1
+        else:
+            next_increment = 1
+    else:
+        next_increment = 1
+    
+    return f"{prefix}{next_increment:03d}"
+
+
 async def fetch_and_save_printables(
     model_url: str,
+    user_id: int | None = None,
     job_id: str | None = None,
     jobs_dir: Path | None = None,
 ) -> tuple[str, list[Path]]:
     """
     Fetch all STL files for a Printables model URL and save under a job directory.
 
+    Args:
+        model_url: Printables model URL
+        user_id: Telegram user ID (required for structured job IDs)
+        job_id: Optional explicit job ID (if not provided, generates structured ID)
+        jobs_dir: Optional jobs directory path
+
     Returns:
         (job_id, list of paths to saved .stl files)
     """
-    job_id = job_id or str(uuid.uuid4())
     jobs_dir = jobs_dir or DEFAULT_JOBS_DIR
+    
+    if job_id is None:
+        if user_id is None:
+            # Fallback to UUID if no user_id provided
+            job_id = str(uuid.uuid4())
+        else:
+            job_id = _generate_job_id(user_id, jobs_dir)
+    
     job_dir = jobs_dir / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
@@ -162,6 +215,7 @@ def unzip_stls_from_path(zip_path: Path, out_dir: Path) -> list[Path]:
 
 async def fetch_model_files(
     model_url: str,
+    user_id: int | None = None,
     job_id: str | None = None,
     jobs_dir: Path | None = None,
 ) -> tuple[str, list[Path]]:
@@ -170,13 +224,19 @@ async def fetch_model_files(
     If the source provides a zip, it is downloaded, unzipped, and STLs are saved.
     Otherwise STL files are downloaded individually.
 
+    Args:
+        model_url: URL to the model
+        user_id: Telegram user ID (for structured job IDs)
+        job_id: Optional explicit job ID
+        jobs_dir: Optional jobs directory path
+
     Returns:
         (job_id, list of paths to .stl files in the job directory)
     """
     parsed = urlparse(model_url)
     netloc = (parsed.netloc or "").lower()
     if "printables.com" in netloc:
-        return await fetch_and_save_printables(model_url, job_id=job_id, jobs_dir=jobs_dir)
+        return await fetch_and_save_printables(model_url, user_id=user_id, job_id=job_id, jobs_dir=jobs_dir)
     if "thingiverse.com" in netloc:
         raise NotImplementedError("Thingiverse fetcher not implemented yet")
     raise ValueError(f"Unsupported model URL: {model_url}")

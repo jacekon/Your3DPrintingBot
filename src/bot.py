@@ -10,6 +10,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from src.config import load_config, setup_logging
+from src.downloads.fetcher import fetch_model_files
 from src.intent.parser import IntentParser
 from src.security import SecurityManager
 
@@ -98,11 +99,84 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"I understood: intent={intent['intent']}, confidence={intent['confidence']:.2f}. "
                     f"Note: {intent['error']}"
                 )
+            elif intent["intent"] == "print":
+                # User wants to print - download files
+                url = intent.get("url")
+                site = intent.get("site")
+                if not url:
+                    await update.message.reply_text(
+                        "I understand you want to print something, but I couldn't find a valid link. "
+                        "Please send me a link from Printables or Thingiverse."
+                    )
+                else:
+                    await update.message.reply_text(
+                        f"Got it! Downloading files from {site or 'the link'}... ⏳"
+                    )
+                    try:
+                        job_id, stl_paths = await fetch_model_files(url, user_id=user_id)
+                        if stl_paths:
+                            file_list = "\n".join([f"  • {p.name}" for p in stl_paths[:5]])
+                            if len(stl_paths) > 5:
+                                file_list += f"\n  ... and {len(stl_paths) - 5} more"
+                            await update.message.reply_text(
+                                f"✅ Downloaded {len(stl_paths)} file(s) for printing!\n"
+                                f"Job ID: {job_id}\n\n"
+                                f"Files:\n{file_list}\n\n"
+                                f"Material: {intent.get('material', 'PLA')}, Color: {intent.get('color', 'printer_default')}\n"
+                                f"Position in queue: {DEFAULT_QUEUE_POSITION}"
+                            )
+                        else:
+                            await update.message.reply_text(
+                                f"⚠️ No STL files found at {url}. Please check the link and try again."
+                            )
+                    except NotImplementedError:
+                        await update.message.reply_text(
+                            f"Sorry, downloading from {site} is not yet supported. "
+                            "Currently only Printables.com is supported."
+                        )
+                    except Exception as e:
+                        logger.exception(f"Failed to download files from {url}")
+                        await update.message.reply_text(
+                            f"❌ Failed to download files: {str(e)}\n\n"
+                            "Please check the link and try again."
+                        )
+            elif intent["intent"] == "save":
+                # User wants to save for later
+                url = intent.get("url")
+                site = intent.get("site") or "the link"
+                if url:
+                    await update.message.reply_text(
+                        f"📌 Noted! I've saved this {site} model for later.\n"
+                        f"Link: {url}\n\n"
+                        "(Note: Bookmark feature is not fully implemented yet - "
+                        "this is just a confirmation message)"
+                    )
+                else:
+                    await update.message.reply_text(
+                        "I understand you want to save something, but I couldn't find a link. "
+                        "Please send me a link to save."
+                    )
+            elif intent["intent"] == "info":
+                # User wants information
+                url = intent.get("url")
+                site = intent.get("site") or "the link"
+                if url:
+                    await update.message.reply_text(
+                        f"ℹ️ Information about this {site} model:\n"
+                        f"Link: {url}\n\n"
+                        "(Note: Detailed model info fetching is not fully implemented yet - "
+                        "you can visit the link to see details)"
+                    )
+                else:
+                    await update.message.reply_text(
+                        "I understand you want information, but I couldn't find what you're asking about. "
+                        "Please send me a link to a model."
+                    )
             else:
+                # Fallback for any other intent
                 await update.message.reply_text(
-                    f"Intent: {intent['intent']} (confidence: {intent['confidence']:.2f}). "
-                    f"Site: {intent.get('site') or '—'}, URL: {intent.get('url') or '—'}. "
-                    f"Material: {intent.get('material', 'PLA')}, color: {intent.get('color', 'printer_default')}."
+                    f"Intent detected: {intent['intent']} (confidence: {intent['confidence']:.2f})\n"
+                    f"Site: {intent.get('site') or '—'}, URL: {intent.get('url') or '—'}"
                 )
         except Exception as e:
             logger.exception("Intent parsing failed")
