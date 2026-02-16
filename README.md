@@ -47,4 +47,4 @@ See [PROJECT_SCOPE.md](PROJECT_SCOPE.md) for scope and [docs/ARCHITECTURE.md](do
 
 ## License
 
-MIT (or your choice — add a LICENSE file when you decide).
+MIT

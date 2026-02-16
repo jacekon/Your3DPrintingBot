@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """
 Test fetching STL files from a Printables model URL.
-Run from project root: python scripts/test_fetch_stl.py
+Run from project root: python tests/test_fetch_stl.py
 """
 import asyncio
 import sys
 from pathlib import Path
 
-# Project root on path
-root = Path(__file__).resolve().parent.parent
-if str(root) not in sys.path:
-    sys.path.insert(0, str(root))
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.downloads.fetcher import fetch_model_files
 

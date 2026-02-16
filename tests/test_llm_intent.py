@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Test that the intent parser actually calls the LLM and returns valid results.
-Run from project root: python scripts/test_llm_intent.py
+Run from project root: python tests/test_llm_intent.py
 Ensure Ollama is running (e.g. ollama serve) and a model is pulled (e.g. ollama run llama3.2).
 Exits with 0 on pass, 1 on failure.
 """
@@ -11,11 +11,10 @@ import logging
 import sys
 from pathlib import Path
 
-# Ensure project root is on path when run as script
-if __name__ == "__main__":
-    root = Path(__file__).resolve().parent.parent
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.intent.parser import IntentParser
 
 # Show INFO logs from the intent parser and LLM
 logging.basicConfig(
@@ -23,8 +22,6 @@ logging.basicConfig(
     level=logging.INFO,
     datefmt="%H:%M:%S",
 )
-
-from src.intent.parser import IntentParser
 
 VALID_INTENTS = {"print", "save", "info", "unclear"}
 
@@ -127,28 +124,28 @@ async def run_test(parser: IntentParser, name: str, message: str, check_fn) -> t
 
 async def main() -> int:
     print("Testing intent parser with LLM...\n")
-    parser = IntentParser()
+    
+    async with IntentParser() as parser:
+        # Test 1: "hello" -> unclear
+        print("[1] Message: 'hello' (expect intent=unclear)")
+        passed1, _ = await run_test(parser, "hello", "hello", check_hello)
+        if not passed1:
+            print("\nOverall: FAILED (hello test)")
+            return 1
+        print("  PASSED\n")
 
-    # Test 1: "hello" -> unclear
-    print("[1] Message: 'hello' (expect intent=unclear)")
-    passed1, _ = await run_test(parser, "hello", "hello", check_hello)
-    if not passed1:
-        print("\nOverall: FAILED (hello test)")
-        return 1
-    print("  PASSED\n")
+        # Test 2: "print <link>" -> print + supported URL/site (link from config)
+        print("[2] Message: 'print <link to supported website>'")
+        message_with_link = f"print {_sample_url_for_print_test()}"
+        print(f"  Input: {message_with_link!r}")
+        passed2, _ = await run_test(parser, "print_link", message_with_link, check_print_link)
+        if not passed2:
+            print("\nOverall: FAILED (print link test)")
+            return 1
+        print("  PASSED\n")
 
-    # Test 2: "print <link>" -> print + supported URL/site (link from config)
-    print("[2] Message: 'print <link to supported website>'")
-    message_with_link = f"print {_sample_url_for_print_test()}"
-    print(f"  Input: {message_with_link!r}")
-    passed2, _ = await run_test(parser, "print_link", message_with_link, check_print_link)
-    if not passed2:
-        print("\nOverall: FAILED (print link test)")
-        return 1
-    print("  PASSED\n")
-
-    print("Overall: PASSED (all tests)")
-    return 0
+        print("Overall: PASSED (all tests)")
+        return 0
 
 
 if __name__ == "__main__":

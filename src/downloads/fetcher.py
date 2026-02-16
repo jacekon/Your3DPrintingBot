@@ -15,9 +15,14 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Constants
 FILES_PRINTABLES_BASE = "https://files.printables.com"
 PRINTABLES_FILES_PAGE = "https://www.printables.com/model/{model_id}/files"
 DEFAULT_JOBS_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "jobs"
+DEFAULT_STL_FILENAME = "file.stl"
+HTTP_TIMEOUT_SHORT = 30.0
+HTTP_TIMEOUT_LONG = 60.0
+USER_AGENT = "Your3DPrintingBot/1.0 (3D print job fetcher)"
 
 
 def _model_id_from_printables_url(url: str) -> str | None:
@@ -66,17 +71,17 @@ def _printables_stl_download_url(file_preview_path: str, file_name: str) -> str:
     if base.endswith("_preview"):
         server_name = base[:-8] + ".stl"
     else:
-        server_name = file_name if file_name else "file.stl"
+        server_name = file_name if file_name else DEFAULT_STL_FILENAME
     return f"{FILES_PRINTABLES_BASE}/{dir_part}/{server_name}"
 
 
 async def fetch_printables_stl_list(model_id: str) -> list[dict[str, Any]]:
     """Fetch Printables /files page and return list of STL file info (name, filePreviewPath, etc.)."""
     url = PRINTABLES_FILES_PAGE.format(model_id=model_id)
-    async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+    async with httpx.AsyncClient(follow_redirects=True, timeout=HTTP_TIMEOUT_SHORT) as client:
         response = await client.get(
             url,
-            headers={"User-Agent": "Your3DPrintingBot/1.0 (3D print job fetcher)"},
+            headers={"User-Agent": USER_AGENT},
         )
         response.raise_for_status()
     stls = _parse_printables_stls_from_html(response.text)
@@ -93,7 +98,7 @@ async def download_file(client: httpx.AsyncClient, url: str, dest: Path) -> None
 
 def _safe_filename(name: str) -> str:
     """Sanitize filename for local storage."""
-    return re.sub(r'[<>:"/\\|?*]', "_", name).strip() or "file.stl"
+    return re.sub(r'[<>:"/\\|?*]', "_", name).strip() or DEFAULT_STL_FILENAME
 
 
 async def fetch_and_save_printables(
@@ -121,9 +126,9 @@ async def fetch_and_save_printables(
         raise ValueError(f"No STL files found for Printables model {model_id}")
 
     saved_stls: list[Path] = []
-    async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
+    async with httpx.AsyncClient(follow_redirects=True, timeout=HTTP_TIMEOUT_LONG) as client:
         for info in stl_list:
-            name = info.get("name") or "file.stl"
+            name = info.get("name") or DEFAULT_STL_FILENAME
             preview_path = info.get("filePreviewPath") or ""
             url = _printables_stl_download_url(preview_path, name)
             if not url:

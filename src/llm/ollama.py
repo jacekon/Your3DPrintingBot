@@ -9,6 +9,11 @@ from src.llm.base import LLMProvider
 
 logger = logging.getLogger(__name__)
 
+# Constants
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
+DEFAULT_OLLAMA_MODEL = "llama3.2"
+DEFAULT_OLLAMA_TIMEOUT = 30.0
+
 
 class OllamaProvider(LLMProvider):
     """Ollama LLM provider for localhost or remote Ollama instance."""
@@ -16,8 +21,8 @@ class OllamaProvider(LLMProvider):
     def __init__(
         self,
         base_url: str | None = None,
-        model: str = "llama3.2",
-        timeout: float = 30.0,
+        model: str | None = None,
+        timeout: float = DEFAULT_OLLAMA_TIMEOUT,
     ):
         """
         Initialize Ollama provider.
@@ -27,10 +32,17 @@ class OllamaProvider(LLMProvider):
             model: Model name to use (default: llama3.2)
             timeout: Request timeout in seconds
         """
-        self.base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.model = model or os.getenv("OLLAMA_MODEL", "llama3.2")
+        self.base_url = base_url or os.getenv("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
+        self.model = model or os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
         self.timeout = timeout
-        self.client = httpx.AsyncClient(timeout=timeout)
+        self._client: httpx.AsyncClient | None = None
+
+    @property
+    def client(self) -> httpx.AsyncClient:
+        """Get or create HTTP client."""
+        if self._client is None:
+            self._client = httpx.AsyncClient(timeout=self.timeout)
+        return self._client
 
     async def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
         """
@@ -68,7 +80,9 @@ class OllamaProvider(LLMProvider):
 
     async def close(self) -> None:
         """Close the HTTP client."""
-        await self.client.aclose()
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     async def __aenter__(self):
         return self

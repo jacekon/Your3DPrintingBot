@@ -7,9 +7,13 @@ from typing import Any
 from urllib.parse import urlparse
 
 from src.llm.base import LLMProvider
+from src.llm.fallback import FallbackLLMProvider
 from src.llm.ollama import OllamaProvider
 
 logger = logging.getLogger(__name__)
+
+# Prompt version for tracking
+PROMPT_VERSION = "1.0"
 
 
 def _config_path(*parts: str) -> Path:
@@ -77,6 +81,7 @@ class IntentParser:
             supported_domains: Override (domain_set, base_domains) (defaults to config/supported_domains.json)
         """
         self.llm = llm_provider or OllamaProvider()
+        self._owns_llm = llm_provider is None  # Track if we created the LLM provider
         self._prompt_template = prompt_template if prompt_template is not None else _load_intent_prompt()
         domain_set, base_domains = supported_domains if supported_domains is not None else load_supported_domains()
         self._supported_domains = domain_set
@@ -98,8 +103,7 @@ class IntentParser:
         Returns:
             List of detected URLs
         """
-        matches = self.url_pattern.findall(text)
-        # Reconstruct full URLs
+        # Extract full URLs directly from matches
         urls = []
         for match in self.url_pattern.finditer(text):
             urls.append(match.group(0))
@@ -127,6 +131,114 @@ class IntentParser:
             logger.warning(f"URL validation error for {url}: {e}")
             return False, None
 
+    def _validate_urls(self, urls: list[str]) -> tuple[list[str], list[str], str | None, str | None]:
+        """
+        Validate URLs and return validated URLs, errors, and primary URL/site.
+
+        Returns:
+            Tuple of (validated_urls, errors, primary_url, primary_site)
+        """
+        validated_urls = []
+        errors = []
+        for url in urls:
+            is_valid, _ = self.validate_url(url)
+            if is_valid:
+                validated_urls.append(url)
+            else:
+                errors.append(f"Unsupported or invalid URL: {url}")
+
+        primary_url = validated_urls[0] if validated_urls else None
+        primary_site = None
+        if primary_url:
+            _, primary_site = self.validate_url(primary_url)
+
+        return validated_urls, errors, primary_url, primary_site
+
+    def _create_error_intent(
+        self, url: str | None, site: str | None, errors: list[str], error_msg: str | None = None
+    ) -> dict[str, Any]:
+        """Create an error intent response."""
+        error_text = error_msg if error_msg else ("; ".join(errors) if errors else None)
+        return {
+            "intent": "unclear",
+            "url": url,
+            "site": site,
+            "confidence": 0.0,
+            "material": "PLA",
+            "color": "printer_default",
+            "error": error_text,
+        }
+
+    def _merge_errors(self, result: dict[str, Any], validation_errors: list[str]) -> dict[str, Any]:
+        """Merge validation errors into result."""
+        if validation_errors and not result.get("error"):
+            result["error"] = "; ".join(validation_errors)
+        elif validation_errors and result.get("error"):
+            result["error"] = result["error"] + "; " + "; ".join(validation_errors)
+        return result
+
+    async def _call_llm(self, user_message: str, urls_str: str) -> str:
+        """Call LLM with user message and URLs, with fallback on failure."""
+        prompt = self._prompt_template.format(
+            user_message=user_message,
+            urls=urls_str,
+        )
+        messages = [
+            {"role": "system", "content": "You are a precise JSON-only intent parser. Return only valid JSON."},
+            {"role": "user", "content": prompt},
+        ]
+        logger.info(
+            "Calling LLM for intent parsing (user_message=%r)",
+            user_message[:80] + "..." if len(user_message) > 80 else user_message,
+        )
+        
+        try:
+            response = await self.llm.chat(messages, temperature=0.1)
+            logger.info("LLM response received (length=%d)", len(response))
+            return response
+        except Exception as e:
+            logger.warning(f"Primary LLM failed: {e}, using fallback")
+            # Use fallback LLM
+            fallback = FallbackLLMProvider()
+            response = await fallback.chat(messages)
+            logger.info("Fallback LLM response received (length=%d)", len(response))
+            return response
+        return response
+
+    def _parse_llm_response(self, response: str) -> dict[str, Any]:
+        """Parse and clean LLM JSON response."""
+        response = response.strip()
+        # Remove markdown code blocks if present
+        if "```json" in response:
+            response = response.split("```json")[1].split("```")[0].strip()
+        elif "```" in response:
+            response = response.split("```")[1].split("```")[0].strip()
+        # Some LLMs emit \\/ or \\. in URLs (escaped unnecessarily); normalize
+        response = response.replace(r"\/", "/").replace(r"\.", ".")
+        return json.loads(response)
+
+    def _build_intent_result(
+        self, intent_data: dict[str, Any], primary_url: str | None, primary_site: str | None
+    ) -> dict[str, Any]:
+        """Build intent result from LLM data and validate."""
+        result = {
+            "intent": intent_data.get("intent", "unclear"),
+            "url": intent_data.get("url") or primary_url,
+            "site": intent_data.get("site") or primary_site,
+            "confidence": float(intent_data.get("confidence", 0.0)),
+            "material": intent_data.get("material", "PLA"),
+            "color": intent_data.get("color", "printer_default"),
+            "error": intent_data.get("error"),
+        }
+
+        # Validate intent enum
+        if result["intent"] not in ["print", "save", "info", "unclear"]:
+            result["intent"] = "unclear"
+            result["confidence"] = 0.0
+            result["error"] = "Invalid intent value from LLM"
+
+        return result
+
     async def parse(self, user_message: str) -> dict[str, Any]:
         """
         Parse user intent from message.
@@ -137,111 +249,44 @@ class IntentParser:
         Returns:
             Intent dict matching the schema in config/intent_schema.json
         """
-        # Extract URLs
+        # Extract and validate URLs
         urls = self.extract_urls(user_message)
         urls_str = ", ".join(urls) if urls else "None"
-
-        # Validate URLs
-        validated_urls = []
-        errors = []
-        for url in urls:
-            is_valid, site = self.validate_url(url)
-            if is_valid:
-                validated_urls.append(url)
-            else:
-                errors.append(f"Unsupported or invalid URL: {url}")
+        validated_urls, errors, primary_url, primary_site = self._validate_urls(urls)
 
         # If we have URLs but none are valid, return error early
         if urls and not validated_urls:
-            return {
-                "intent": "unclear",
-                "url": urls[0] if urls else None,
-                "site": None,
-                "confidence": 0.0,
-                "material": "PLA",
-                "color": "printer_default",
-                "error": "; ".join(errors),
-            }
-
-        # Use first validated URL (or None)
-        primary_url = validated_urls[0] if validated_urls else None
-        primary_site = None
-        if primary_url:
-            _, primary_site = self.validate_url(primary_url)
-
-        # Build LLM prompt
-        prompt = self._prompt_template.format(
-            user_message=user_message,
-            urls=urls_str,
-        )
-
-        messages = [
-            {"role": "system", "content": "You are a precise JSON-only intent parser. Return only valid JSON."},
-            {"role": "user", "content": prompt},
-        ]
+            return self._create_error_intent(urls[0] if urls else None, None, errors)
 
         try:
-            # Call LLM
-            logger.info("Calling LLM for intent parsing (user_message=%r)", user_message[:80] + "..." if len(user_message) > 80 else user_message)
-            response = await self.llm.chat(messages, temperature=0.1)  # Low temperature for consistency
-            logger.info("LLM response received (length=%d)", len(response))
+            # Call LLM and parse response
+            response = await self._call_llm(user_message, urls_str)
+            intent_data = self._parse_llm_response(response)
 
-            # Parse JSON response
-            # LLM might wrap in markdown code blocks or add extra text
-            response = response.strip()
-            if "```json" in response:
-                response = response.split("```json")[1].split("```")[0].strip()
-            elif "```" in response:
-                response = response.split("```")[1].split("```")[0].strip()
-            # Some LLMs emit \/ in URLs (invalid JSON); normalize to /
-            response = response.replace(r"\/", "/")
+            # Build and validate result
+            result = self._build_intent_result(intent_data, primary_url, primary_site)
 
-            intent_data = json.loads(response)
-
-            # Ensure required fields and defaults
-            result = {
-                "intent": intent_data.get("intent", "unclear"),
-                "url": intent_data.get("url") or primary_url,
-                "site": intent_data.get("site") or primary_site,
-                "confidence": float(intent_data.get("confidence", 0.0)),
-                "material": intent_data.get("material", "PLA"),
-                "color": intent_data.get("color", "printer_default"),
-                "error": intent_data.get("error"),
-            }
-
-            # Validate intent enum
-            if result["intent"] not in ["print", "save", "info", "unclear"]:
-                result["intent"] = "unclear"
-                result["confidence"] = 0.0
-                result["error"] = "Invalid intent value from LLM"
-
-            # If we had validation errors, merge them
-            if errors and not result.get("error"):
-                result["error"] = "; ".join(errors)
-            elif errors and result.get("error"):
-                result["error"] = result["error"] + "; " + "; ".join(errors)
-
-            return result
+            # Merge validation errors if any
+            return self._merge_errors(result, errors)
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM JSON response: {e}\nResponse: {response}")
-            return {
-                "intent": "unclear",
-                "url": primary_url,
-                "site": primary_site,
-                "confidence": 0.0,
-                "material": "PLA",
-                "color": "printer_default",
-                "error": f"Failed to parse LLM response as JSON: {e}",
-            }
+            logger.error(f"Failed to parse LLM JSON response: {e}\\nResponse: {response}")
+            return self._create_error_intent(
+                primary_url, primary_site, errors, f"Failed to parse LLM response as JSON: {e}"
+            )
         except Exception as e:
             logger.error(f"Intent parsing error: {e}")
-            return {
-                "intent": "unclear",
-                "url": primary_url,
-                "site": primary_site,
-                "confidence": 0.0,
-                "material": "PLA",
-                "color": "printer_default",
-                "error": f"Intent parsing failed: {e}",
-            }
+            return self._create_error_intent(primary_url, primary_site, errors, f"Intent parsing failed: {e}")
+
+    async def close(self) -> None:
+        """Close resources (LLM provider if owned)."""
+        if self._owns_llm and hasattr(self.llm, "close"):
+            await self.llm.close()
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.close()
