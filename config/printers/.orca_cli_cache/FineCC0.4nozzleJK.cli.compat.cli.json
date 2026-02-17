@@ -1,0 +1,16 @@
+{
+  "from": "User",
+  "inherits": "0.12mm Fine @Elegoo CC 0.4 nozzle",
+  "is_custom_defined": "0",
+  "name": "0.12mm Fine @Elegoo CC 0.4 nozzle - JK",
+  "print_settings_id": "0.12mm Fine @Elegoo CC 0.4 nozzle - JK",
+  "sparse_infill_density": "16%",
+  "version": "2.3.1.10",
+  "type": "process",
+  "compatible_printers": [
+    "Elegoo Centauri Carbon 0.4 nozzle - JK",
+    "Elegoo Centauri Carbon 0.4 nozzle - JK",
+    "Elegoo Centauri Carbon 0.4 nozzle"
+  ],
+  "compatible_printers_condition": ""
+}

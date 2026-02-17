@@ -1,0 +1,15 @@
+{
+    "bundle_id": "ElegooCCJK",
+    "bundle_type": "printer config bundle",
+    "filament_config": [
+        "filament/PLA-CF.json"
+    ],
+    "printer_config": [
+        "printer/ElegooCC.json"
+    ],
+    "printer_preset_name": "ElegooCCJK",
+    "process_config": [
+        "process/FineCC0.4nozzleJK.json"
+    ],
+    "version": ""
+}

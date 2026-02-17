@@ -1,0 +1,13 @@
+{
+    "during_print_exhaust_fan_speed": [
+        "71"
+    ],
+    "filament_settings_id": [
+        "Elegoo PLA-CF @ECC - JK"
+    ],
+    "from": "User",
+    "inherits": "Elegoo PLA-CF @ECC",
+    "is_custom_defined": "0",
+    "name": "Elegoo PLA-CF @ECC - JK",
+    "version": "2.3.1.10"
+}

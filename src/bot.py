@@ -61,7 +61,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     name = update.effective_user.first_name or update.effective_user.username or "there"
     await update.message.reply_text(
         f"Hi {name}! I'm Your3DPrintingBot — your 3D printing assistant. "
-        f"Send me a link to Printables/Thingiverse and I'll print it for you. \n "
+        f"Send me a link to Printables and I'll print it for you. \n "
         f"Current material is {DEFAULT_MATERIAL}. \n Color: {DEFAULT_COLOR}. \n "
         f"Price: {DEFAULT_PRICE}. \nShipping: next time you see Jacek. "
         f"Position in queue: {DEFAULT_QUEUE_POSITION}."
@@ -89,9 +89,9 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                 sites = _supported_sites_message()
                 await update.message.reply_text(
                     "I'm sorry, I didn't quite get that. I can only 3D print from "
-                    f"{sites}. Send me a link and I'll let you know if I can print it.\\n\\n"
-                    f"Current settings: material {DEFAULT_MATERIAL}, color {DEFAULT_COLOR}. "
-                    f"Price: {DEFAULT_PRICE}. Shipping: next time you see Jacek. "
+                    f"{sites}. Send me a link and I'll let you know if I can print it.\n"
+                    f"Current settings:\nmaterial {DEFAULT_MATERIAL},\ncolor {DEFAULT_COLOR}.\n"
+                    f"Price: {DEFAULT_PRICE}.\nShipping: next time you see Jacek.\n"
                     f"Position in queue: {DEFAULT_QUEUE_POSITION}."
                 )
             elif intent.get("error"):
