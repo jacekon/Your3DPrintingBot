@@ -13,6 +13,7 @@ from src.config import load_config, setup_logging
 from src.downloads.fetcher import fetch_model_files
 from src.intent.parser import IntentParser
 from src.security import SecurityManager
+from src.slicer import OrcaSlicer
 
 # Setup logging first
 setup_logging()
@@ -118,13 +119,29 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                             file_list = "\n".join([f"  • {p.name}" for p in stl_paths[:5]])
                             if len(stl_paths) > 5:
                                 file_list += f"\n  ... and {len(stl_paths) - 5} more"
+                            output_dir = stl_paths[0].parent
                             await update.message.reply_text(
                                 f"✅ Downloaded {len(stl_paths)} file(s) for printing!\n"
                                 f"Job ID: {job_id}\n\n"
                                 f"Files:\n{file_list}\n\n"
                                 f"Material: {intent.get('material', 'PLA')}, Color: {intent.get('color', 'printer_default')}\n"
-                                f"Position in queue: {DEFAULT_QUEUE_POSITION}"
+                                f"Position in queue: {DEFAULT_QUEUE_POSITION}\n\n"
                             )
+                            try:
+                                slicer = OrcaSlicer()
+                                gcode_paths = await slicer.slice_files(stl_paths, output_dir)
+                                gcode_list = "\n".join([f"  • {p.name}" for p in gcode_paths[:5]])
+                                if len(gcode_paths) > 5:
+                                    gcode_list += f"\n  ... and {len(gcode_paths) - 5} more"
+                                await update.message.reply_text(
+                                    f"✅ Sliced {len(gcode_paths)} file(s)!\n"
+                                    f"G-code files:\n{gcode_list}"
+                                )
+                            except Exception as e:
+                                logger.exception("Slicing failed")
+                                await update.message.reply_text(
+                                    f"❌ Slicing failed: {e}"
+                                )
                         else:
                             await update.message.reply_text(
                                 f"⚠️ No STL files found at {url}. Please check the link and try again."

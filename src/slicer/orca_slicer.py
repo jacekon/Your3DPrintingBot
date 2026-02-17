@@ -37,6 +37,9 @@ class OrcaSlicer(BaseSlicer):
         """
         self.preset_path = preset_path or self._get_default_preset()
         self.orca_bin = orca_bin_path or self._find_orca_binary()
+        # CLI-normalized presets are generated at runtime into config/printers/.orca_cli_cache.
+        # OrcaSlicer CLI requires config JSONs to include a "type" field and rejects bundles directly.
+        # We also inject G92 E0 into layer_gcode when relative extrusion is in use.
         self._cli_cache_dir = Path(__file__).resolve().parent.parent.parent / "config" / "printers" / ".orca_cli_cache"
         self._cli_cache_dir.mkdir(exist_ok=True)
         
@@ -126,6 +129,7 @@ class OrcaSlicer(BaseSlicer):
         return None
 
     def _find_orca_datadir(self) -> Optional[Path]:
+        """Locate OrcaSlicer user data directory for inheritance resolution."""
         candidates = [
             Path.home() / "Library" / "Application Support" / "OrcaSlicer",
             Path.home() / ".config" / "OrcaSlicer",
@@ -248,6 +252,7 @@ class OrcaSlicer(BaseSlicer):
             return None
 
     def _ensure_type(self, config_path: Path, expected_type: str) -> Path:
+        """Ensure preset JSON has a "type" field by writing a cached copy if needed."""
         data = self._load_json(config_path)
         if not data:
             return config_path
@@ -267,6 +272,7 @@ class OrcaSlicer(BaseSlicer):
             return config_path
 
     def _ensure_layer_gcode(self, process_config: Path) -> Path:
+        """Inject G92 E0 into process layer_gcode if missing, using a cached copy."""
         data = self._load_json(process_config)
         if not data:
             return process_config
@@ -286,6 +292,7 @@ class OrcaSlicer(BaseSlicer):
             return process_config
 
     def _ensure_machine_layer_gcode(self, machine_config: Path) -> Path:
+        """Inject G92 E0 into machine layer_gcode if missing, using a cached copy."""
         data = self._load_json(machine_config)
         if not data:
             return machine_config
@@ -311,6 +318,7 @@ class OrcaSlicer(BaseSlicer):
         printer_settings_id: str,
         printer_inherits: str,
     ) -> Path:
+        """Patch process preset compatibility list so OrcaSlicer accepts the printer."""
         data = self._load_json(process_config)
         if not data:
             return process_config
@@ -361,6 +369,7 @@ class OrcaSlicer(BaseSlicer):
         return fix_path if fix_path.exists() else None
 
     def _build_preset_args(self) -> List[str]:
+        """Create CLI args for --load-settings/--load-filaments using normalized presets."""
         preset_args: List[str] = []
 
         if not self.preset_path or not self.preset_path.exists():
@@ -571,16 +580,6 @@ class OrcaSlicer(BaseSlicer):
             except Exception as e:
                 logger.error(f"Failed to slice {stl_path.name}: {e}")
                 errors.append((stl_path.name, str(e)))
-        
-        
-            datadir = self._find_orca_datadir()
-            if datadir:
-                cmd.extend(["--datadir", str(datadir)])
-        
-            cmd.extend([
-                "--slice", "0",  # 0 = slice all plates
-                "--outputdir", str(output_dir),
-            ])
         if errors:
             error_summary = "\n".join([f"  • {name}: {err}" for name, err in errors])
             raise RuntimeError(
