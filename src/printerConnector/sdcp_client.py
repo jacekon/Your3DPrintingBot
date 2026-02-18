@@ -179,7 +179,7 @@ class SdcpClient:
                         ping_timeout=10,
                         open_timeout=5,
                     )
-                            self._status_queue = asyncio.Queue()
+                    self._status_queue = asyncio.Queue()
                     self._ws_task = asyncio.create_task(self._ws_reader())
                     return
                 except Exception as exc:
