@@ -1,3 +1,4 @@
-[submodule "src/printerConnector/cassini"]
-	path = src/printerConnector/cassini
-	url = https://github.com/jacekon/cassini.git
+
+[submodule "src/printerConnector/sdcp-printer-api"]
+	path = src/printerConnector/sdcp-printer-api
+	url = https://github.com/jacekon/sdcp-printer-api.git
