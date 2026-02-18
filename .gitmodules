@@ -1,0 +1,3 @@
+[submodule "src/printerConnector/cassini"]
+	path = src/printerConnector/cassini
+	url = https://github.com/vvuk/cassini.git
