@@ -5,6 +5,9 @@ python-telegram-bot>=21.0
 httpx>=0.27.0
 websockets>=12.0
 
+# MQTT (SDCP/ElegooLink)
+paho-mqtt>=2.1.0
+
 # HTML parsing for link metadata
 beautifulsoup4>=4.12.0
 
