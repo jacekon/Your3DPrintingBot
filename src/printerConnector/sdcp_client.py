@@ -222,6 +222,10 @@ class SdcpClient:
                 except json.JSONDecodeError:
                     continue
 
+                topic = payload.get("Topic")
+                if topic and topic.startswith("sdcp/status/"):
+                    logger.info("Status message received: %s", payload)
+
                 data = payload.get("Data", {})
                 request_id = data.get("RequestID") or data.get("request_id")
                 if request_id and request_id in self._pending:
@@ -230,6 +234,21 @@ class SdcpClient:
                         future.set_result(payload)
         except asyncio.CancelledError:
             return
+
+    async def wait_for_status(self, timeout: float = 5.0) -> dict[str, Any]:
+        """Wait for a status topic message after a Cmd 0 request."""
+        if not self._ws:
+            raise RuntimeError("Not connected")
+
+        end = time.time() + timeout
+        while time.time() < end:
+            raw = await asyncio.wait_for(self._ws.recv(), timeout=end - time.time())
+            payload = json.loads(raw)
+            topic = payload.get("Topic")
+            if topic and topic.startswith("sdcp/status/"):
+                return payload
+
+        raise TimeoutError("timed out waiting for status message")
 
     def _build_payload(self, cmd: int, data: Optional[dict[str, Any]] = None) -> tuple[str, dict[str, Any]]:
         request_id = uuid.uuid4().hex

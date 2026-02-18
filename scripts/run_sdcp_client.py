@@ -33,6 +33,11 @@ def main() -> None:
             print("Device attributes:", attrs)
             status = await client.get_status()
             print("Status:", status)
+            try:
+                full_status = await client.wait_for_status(timeout=5)
+                print("Full status:", full_status)
+            except Exception as e:
+                print("Full status not received:", e)
         finally:
             await client.close()
 
