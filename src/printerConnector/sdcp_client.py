@@ -310,27 +310,37 @@ class SdcpClient:
         """
         url_base = f"http://{self.ip}"
         endpoints = [
-            ("/upload", {"path": dest_dir}),
-            ("/upload_gcode", {"path": dest_dir}),
-            ("/api/files", {"path": dest_dir}),
+            ("/upload", {"path": dest_dir}, "file"),
+            ("/upload", {"dir": dest_dir}, "file"),
+            ("/upload", {"folder": dest_dir}, "file"),
+            ("/upload_gcode", {"path": dest_dir}, "file"),
+            ("/upload_gcode", {"dir": dest_dir}, "file"),
+            ("/file/upload", {"path": dest_dir}, "file"),
+            ("/files/upload", {"path": dest_dir}, "file"),
+            ("/api/upload", {"path": dest_dir}, "file"),
+            ("/api/files", {"path": dest_dir}, "file"),
         ]
 
         last_error: Optional[Exception] = None
-        for endpoint, params in endpoints:
+        attempts: list[str] = []
+        for endpoint, params, field_name in endpoints:
             try:
                 async with httpx.AsyncClient(timeout=20) as client:
                     with open(file_path, "rb") as handle:
-                        files = {"file": (file_path.split("/")[-1], handle, "application/octet-stream")}
+                        files = {field_name: (file_path.split("/")[-1], handle, "application/octet-stream")}
                         response = await client.post(f"{url_base}{endpoint}", params=params, files=files)
+                        attempts.append(f"{endpoint} ({response.status_code})")
                         if response.status_code in {200, 201}:
                             return {"endpoint": endpoint, "status": response.status_code, "body": response.text}
                         last_error = RuntimeError(
                             f"Upload failed {endpoint}: {response.status_code} {response.text}"
                         )
             except Exception as exc:
+                attempts.append(f"{endpoint} (error)")
                 last_error = exc
 
-        raise RuntimeError("All upload attempts failed") from last_error
+        attempt_summary = ", ".join(attempts) if attempts else "no attempts"
+        raise RuntimeError(f"All upload attempts failed ({attempt_summary})") from last_error
 
     async def start_print(
         self,
