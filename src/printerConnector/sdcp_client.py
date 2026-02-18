@@ -16,6 +16,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Optional
 
 import hashlib
@@ -397,7 +398,31 @@ class SdcpClient:
                 "URL": url,
             }
             response = await self.send_cmd(256, payload, timeout=10)
-            return {"endpoint": "sdcp:256", "status": "sent", "body": response}
+            transfer_status = await self._wait_for_transfer(filename, timeout=120)
+            return {
+                "endpoint": "sdcp:256",
+                "status": "sent",
+                "body": response,
+                "transfer": transfer_status,
+            }
+
+    async def _wait_for_transfer(self, filename: str, timeout: float = 60.0) -> dict[str, Any]:
+        if not self._status_queue:
+            raise RuntimeError("Status queue not initialized")
+
+        end = time.time() + timeout
+        while time.time() < end:
+            remaining = end - time.time()
+            status = await asyncio.wait_for(self._status_queue.get(), timeout=remaining)
+            info = status.get("Status", {}).get("FileTransferInfo", {})
+            if info.get("Filename") and info.get("Filename") != filename:
+                continue
+
+            state = info.get("Status")
+            if state in {2, 3}:
+                return status
+
+        raise TimeoutError("timed out waiting for file transfer to finish")
 
     @staticmethod
     def _file_md5(file_path: str) -> str:
