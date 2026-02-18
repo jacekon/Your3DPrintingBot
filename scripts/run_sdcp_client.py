@@ -23,8 +23,11 @@ def main() -> None:
     print("Discovery:", SdcpClient.discover())
 
     async def run() -> None:
-        client = SdcpClient(config.printer_ip)
-        await client.connect(ws_ports=[3031, 3030])
+        discovery = SdcpClient.discover()
+        device_ip = discovery[0].ip if discovery else config.printer_ip
+
+        client = SdcpClient(device_ip)
+        await client.connect(ws_ports=[3031, 3030], paths=["/websocket", "/ws", "/"])
         try:
             attrs = await client.get_device_attributes()
             print("Device attributes:", attrs)

@@ -54,6 +54,7 @@ class SdcpClient:
         self._mqtt_connected = threading.Event()
         self._mqtt_mainboard_id: Optional[str] = None
         self._mainboard_id: Optional[str] = None
+        self._mainboard_ip: Optional[str] = None
 
     @staticmethod
     def discover(timeout: float = 2.0) -> list[SdcpDevice]:
@@ -153,29 +154,35 @@ class SdcpClient:
         response = await asyncio.wait_for(self._mqtt_queue.get(), timeout=timeout)
         return response
 
-    async def connect(self, ws_ports: Optional[list[int]] = None) -> None:
+    async def connect(
+        self,
+        ws_ports: Optional[list[int]] = None,
+        paths: Optional[list[str]] = None,
+    ) -> None:
         """Connect to the printer WebSocket channel.
 
         Tries provided ports (default: 3031 then 3030).
         """
         ports = ws_ports or [3031, self.ws_port]
+        path_candidates = paths or ["/websocket", "/ws", "/"]
         last_error: Optional[Exception] = None
 
         for port in ports:
-            uri = f"ws://{self.ip}:{port}/websocket"
-            logger.info("Connecting to SDCP WebSocket: %s", uri)
-            try:
-                self._ws = await websockets.connect(
-                    uri,
-                    ping_interval=30,
-                    ping_timeout=10,
-                    open_timeout=5,
-                )
-                self._ws_task = asyncio.create_task(self._ws_reader())
-                return
-            except Exception as exc:
-                last_error = exc
-                logger.warning("WebSocket connect failed for %s: %s", uri, exc)
+            for path in path_candidates:
+                uri = f"ws://{self.ip}:{port}{path}"
+                logger.info("Connecting to SDCP WebSocket: %s", uri)
+                try:
+                    self._ws = await websockets.connect(
+                        uri,
+                        ping_interval=30,
+                        ping_timeout=10,
+                        open_timeout=5,
+                    )
+                    self._ws_task = asyncio.create_task(self._ws_reader())
+                    return
+                except Exception as exc:
+                    last_error = exc
+                    logger.warning("WebSocket connect failed for %s: %s", uri, exc)
 
         raise TimeoutError("timed out during opening handshake") from last_error
 
@@ -258,9 +265,13 @@ class SdcpClient:
     async def get_device_attributes(self) -> dict[str, Any]:
         """Cmd 1: Get device attributes (name, firmware, capabilities)."""
         response = await self.send_cmd(1)
-        mainboard_id = response.get("MainboardID") or response.get("Data", {}).get("MainboardID")
+        data = response.get("Data", {}) if isinstance(response, dict) else {}
+        mainboard_id = response.get("MainboardID") or data.get("MainboardID")
+        mainboard_ip = data.get("MainboardIP")
         if mainboard_id:
             self._mainboard_id = mainboard_id
+        if mainboard_ip:
+            self._mainboard_ip = mainboard_ip
         return response
 
     async def list_files(self, directory: str = "/local") -> dict[str, Any]:
