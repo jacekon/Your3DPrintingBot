@@ -48,6 +48,7 @@ class SdcpClient:
         self._ws: Optional[websockets.WebSocketClientProtocol] = None
         self._ws_task: Optional[asyncio.Task[None]] = None
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._status_queue: Optional[asyncio.Queue[dict[str, Any]]] = None
         self._mqtt: Optional[mqtt.Client] = None
         self._mqtt_loop: Optional[asyncio.AbstractEventLoop] = None
         self._mqtt_queue: Optional[asyncio.Queue[dict[str, Any]]] = None
@@ -178,9 +179,16 @@ class SdcpClient:
                         ping_timeout=10,
                         open_timeout=5,
                     )
+                            self._status_queue = asyncio.Queue()
                     self._ws_task = asyncio.create_task(self._ws_reader())
                     return
                 except Exception as exc:
+                    if self._ws:
+                        try:
+                            await self._ws.close()
+                        except Exception:
+                            pass
+                        self._ws = None
                     last_error = exc
                     logger.warning("WebSocket connect failed for %s: %s", uri, exc)
 
@@ -194,6 +202,10 @@ class SdcpClient:
         if self._ws_task:
             self._ws_task.cancel()
             self._ws_task = None
+        if self._status_queue:
+            while not self._status_queue.empty():
+                self._status_queue.get_nowait()
+            self._status_queue = None
         for future in self._pending.values():
             if not future.done():
                 future.cancel()
@@ -224,7 +236,8 @@ class SdcpClient:
 
                 topic = payload.get("Topic")
                 if topic and topic.startswith("sdcp/status/"):
-                    logger.info("Status message received: %s", payload)
+                    if self._status_queue:
+                        self._status_queue.put_nowait(payload)
 
                 data = payload.get("Data", {})
                 request_id = data.get("RequestID") or data.get("request_id")
@@ -237,18 +250,9 @@ class SdcpClient:
 
     async def wait_for_status(self, timeout: float = 5.0) -> dict[str, Any]:
         """Wait for a status topic message after a Cmd 0 request."""
-        if not self._ws:
+        if not self._ws or not self._status_queue:
             raise RuntimeError("Not connected")
-
-        end = time.time() + timeout
-        while time.time() < end:
-            raw = await asyncio.wait_for(self._ws.recv(), timeout=end - time.time())
-            payload = json.loads(raw)
-            topic = payload.get("Topic")
-            if topic and topic.startswith("sdcp/status/"):
-                return payload
-
-        raise TimeoutError("timed out waiting for status message")
+        return await asyncio.wait_for(self._status_queue.get(), timeout=timeout)
 
     def _build_payload(self, cmd: int, data: Optional[dict[str, Any]] = None) -> tuple[str, dict[str, Any]]:
         request_id = uuid.uuid4().hex
