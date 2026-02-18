@@ -18,6 +18,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import httpx
 import paho.mqtt.client as mqtt
 import websockets
 
@@ -300,6 +301,54 @@ class SdcpClient:
     async def list_files(self, directory: str = "/local") -> dict[str, Any]:
         """Cmd 258: List files in a directory (default /local)."""
         return await self.send_cmd(258, {"Url": directory})
+
+    async def upload_gcode(self, file_path: str, dest_dir: str = "/local") -> dict[str, Any]:
+        """Upload a G-code file to the printer via HTTP.
+
+        The exact upload endpoint varies by firmware. We try common candidates
+        and return the first successful response.
+        """
+        url_base = f"http://{self.ip}"
+        endpoints = [
+            ("/upload", {"path": dest_dir}),
+            ("/upload_gcode", {"path": dest_dir}),
+            ("/api/files", {"path": dest_dir}),
+        ]
+
+        last_error: Optional[Exception] = None
+        for endpoint, params in endpoints:
+            try:
+                async with httpx.AsyncClient(timeout=20) as client:
+                    with open(file_path, "rb") as handle:
+                        files = {"file": (file_path.split("/")[-1], handle, "application/octet-stream")}
+                        response = await client.post(f"{url_base}{endpoint}", params=params, files=files)
+                        if response.status_code in {200, 201}:
+                            return {"endpoint": endpoint, "status": response.status_code, "body": response.text}
+                        last_error = RuntimeError(
+                            f"Upload failed {endpoint}: {response.status_code} {response.text}"
+                        )
+            except Exception as exc:
+                last_error = exc
+
+        raise RuntimeError("All upload attempts failed") from last_error
+
+    async def start_print(
+        self,
+        filename: str,
+        start_layer: int = 0,
+        calibration_switch: int = 0,
+        print_platform_type: int = 0,
+        timelapse_switch: int = 0,
+    ) -> dict[str, Any]:
+        """Cmd 128: Start a print job for a file under /local."""
+        payload = {
+            "Filename": filename,
+            "StartLayer": start_layer,
+            "Calibration_switch": calibration_switch,
+            "PrintPlatformType": print_platform_type,
+            "Tlp_Switch": timelapse_switch,
+        }
+        return await self.send_cmd(128, payload)
 
     @staticmethod
     def _topic_request(mainboard_id: str) -> str:

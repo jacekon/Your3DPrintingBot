@@ -13,6 +13,7 @@ from src.config import load_config, setup_logging
 from src.downloads.fetcher import fetch_model_files
 from src.intent.parser import IntentParser
 from src.security import SecurityManager
+from src.printerConnector import SdcpClient
 from src.slicer import OrcaSlicer
 
 # Setup logging first
@@ -142,6 +143,41 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
                                 await update.message.reply_text(
                                     f"❌ Slicing failed: {e}"
                                 )
+                                return
+
+                            await update.message.reply_text("⏳ Uploading G-code to the printer...")
+                            try:
+                                discovery = SdcpClient.discover()
+                                printer_ip = discovery[0].ip if discovery else config.printer_ip
+                                if not printer_ip:
+                                    raise RuntimeError("PRINTER_IP not configured")
+                                client = SdcpClient(printer_ip)
+                                await client.connect(ws_ports=[3031, 3030], paths=["/websocket", "/ws", "/"])
+                                try:
+                                    await client.get_device_attributes()
+                                    for gcode_path in gcode_paths:
+                                        await client.upload_gcode(str(gcode_path), dest_dir="/local")
+                                    first_file = f"/local/{gcode_paths[0].name}"
+                                    start_result = await client.start_print(first_file)
+                                    await update.message.reply_text(
+                                        "✅ Upload complete. Print started.\n"
+                                        f"Started: {first_file}\n"
+                                        f"Response: {start_result}"
+                                    )
+                                finally:
+                                    await client.close()
+                            except Exception as e:
+                                message = str(e).lower()
+                                if "opening handshake" in message or "timed out" in message:
+                                    await update.message.reply_text(
+                                        "Printer is busy, your job is waiting in a queue, "
+                                        "I will inform you once the print started."
+                                    )
+                                else:
+                                    logger.exception("Upload/print failed")
+                                    await update.message.reply_text(
+                                        f"❌ Upload/print failed: {e}"
+                                    )
                         else:
                             await update.message.reply_text(
                                 f"⚠️ No STL files found at {url}. Please check the link and try again."
