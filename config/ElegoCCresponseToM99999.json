@@ -1,0 +1,12 @@
+{
+    "Id": "979d4C788A4a78bC777A870F1A02867A",
+    "Data": {
+        "Name": "Centauri Carbon",
+        "MachineName": "Centauri Carbon",
+        "BrandName": "ELEGOO",
+        "MainboardIP": "192.168.31.104",
+        "MainboardID": "0c6612d10147017000002c0000000000",
+        "ProtocolVersion": "V3.0.0",
+        "FirmwareVersion": "V1.1.25"
+    }
+}

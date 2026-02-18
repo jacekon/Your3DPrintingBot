@@ -11,6 +11,9 @@ paho-mqtt>=2.1.0
 # Network discovery (Cassini)
 scapy>=2.5.0
 
+# SDCP V3 async UDP
+asyncio-dgram>=2.2.0
+
 # HTML parsing for link metadata
 beautifulsoup4>=4.12.0
 
