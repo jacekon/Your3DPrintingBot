@@ -11,6 +11,8 @@ if str(SDCP_API_PATH) not in sys.path:
     sys.path.append(str(SDCP_API_PATH))
 
 from sdcp_printer import SDCPPrinter  # noqa: E402
+import hashlib
+
 from sdcp_printer.enum import SDCPFrom, SDCPCommand  # noqa: E402
 from sdcp_printer.scanner import discover_devices  # noqa: E402
 from sdcp_printer.request import SDCPRequest  # noqa: E402
@@ -99,6 +101,34 @@ class SdcpClient:
         """Cmd 258: Retrieve file list (stub)."""
         raise NotImplementedError("retrieve_file_list is not implemented yet")
 
+    async def upload_gcode(self, file_path: str, url: str) -> dict[str, object]:
+        """Cmd 256: Request upload by URL (printer pulls from HTTP server)."""
+        if not self.printer:
+            raise RuntimeError(_PRINTER_NOT_CONNECTED)
+
+        file_path_obj = Path(file_path)
+        payload = SDCPRequest.build(
+            self.printer,
+            SDCPCommand.UPLOAD_FILE,
+            {
+                "Check": 0,
+                "CleanCache": 1,
+                "Compress": 0,
+                "FileSize": file_path_obj.stat().st_size,
+                "Filename": file_path_obj.name,
+                "MD5": self._file_md5(file_path_obj),
+                "URL": url,
+            },
+            SDCPFrom.PC,
+        )
+        await self.printer._send_request_async(
+            payload,
+            receive_message=False,
+            expect_response=False,
+            timeout=max(self.timeout, 15),
+        )
+        return {"sent": True, "filename": file_path_obj.name, "url": url}
+
     async def batch_delete_files(self, paths: list[str]) -> None:
         """Cmd 259: Batch delete files (stub)."""
         raise NotImplementedError("batch_delete_files is not implemented yet")
@@ -165,3 +195,11 @@ class SdcpClient:
             self._listen_task = None
 
         self.printer = None
+
+    @staticmethod
+    def _file_md5(file_path: Path) -> str:
+        hash_md5 = hashlib.md5()
+        with open(file_path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(8192), b""):
+                hash_md5.update(chunk)
+        return hash_md5.hexdigest()

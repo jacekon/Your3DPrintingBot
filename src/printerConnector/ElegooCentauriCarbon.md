@@ -202,7 +202,7 @@ Supported commends: only Cmd 0 and Cmd 1 have been verified on this firmware. Al
 
 ## File Upload
 
-File upload for Centauri Carbon is **not yet verified**. Multiple HTTP endpoints tried so far have returned 404/500. A likely path is SDCP Cmd 256 (printer pulls from a local HTTP server), but this still needs confirmation on this firmware.
+File upload for Centauri Carbon is **not yet verified**. Multiple HTTP endpoints tried so far have returned 404/500. We implemented SDCP Cmd 256 (printer pulls from a local HTTP server) and sent URLs using the `${ipaddr}` placeholder. The printer accepts the request (no error) but the file does **not** appear on the printer yet. Further payload field validation is needed.
 
 ---
 

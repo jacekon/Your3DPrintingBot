@@ -45,8 +45,8 @@ This document summarizes the current state of the project and what remains to be
 
 ### 2) File Upload
 - Upload is not working yet. HTTP endpoints are unverified.
-- Likely approach: SDCP Cmd 256 (printer pulls from a local HTTP server). Needs validation on Centauri Carbon.
-- Must confirm exact payload fields and status tracking for upload completion.
+- Implemented Cmd 256 with local HTTP server and `${ipaddr}` URL placeholder; printer accepts request but file does not appear on device.
+- Must confirm exact payload fields/format and whether additional fields are required for Centauri Carbon.
 
 ### 3) Bot Refactor (Critical Note)
 - The bot currently lives in src/bot.py and is imported in src/__init__.py.
