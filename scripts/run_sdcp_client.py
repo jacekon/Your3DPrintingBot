@@ -24,7 +24,7 @@ def main() -> None:
 
     async def run() -> None:
         client = SdcpClient(config.printer_ip)
-        await client.connect()
+        await client.connect(ws_ports=[3031, 3030])
         try:
             attrs = await client.get_device_attributes()
             print("Device attributes:", attrs)

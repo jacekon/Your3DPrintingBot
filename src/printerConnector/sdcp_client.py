@@ -153,12 +153,31 @@ class SdcpClient:
         response = await asyncio.wait_for(self._mqtt_queue.get(), timeout=timeout)
         return response
 
-    async def connect(self) -> None:
-        """Connect to the printer WebSocket channel."""
-        uri = f"ws://{self.ip}:{self.ws_port}/websocket"
-        logger.info("Connecting to SDCP WebSocket: %s", uri)
-        self._ws = await websockets.connect(uri, ping_interval=30, ping_timeout=10)
-        self._ws_task = asyncio.create_task(self._ws_reader())
+    async def connect(self, ws_ports: Optional[list[int]] = None) -> None:
+        """Connect to the printer WebSocket channel.
+
+        Tries provided ports (default: 3031 then 3030).
+        """
+        ports = ws_ports or [3031, self.ws_port]
+        last_error: Optional[Exception] = None
+
+        for port in ports:
+            uri = f"ws://{self.ip}:{port}/websocket"
+            logger.info("Connecting to SDCP WebSocket: %s", uri)
+            try:
+                self._ws = await websockets.connect(
+                    uri,
+                    ping_interval=30,
+                    ping_timeout=10,
+                    open_timeout=5,
+                )
+                self._ws_task = asyncio.create_task(self._ws_reader())
+                return
+            except Exception as exc:
+                last_error = exc
+                logger.warning("WebSocket connect failed for %s: %s", uri, exc)
+
+        raise TimeoutError("timed out during opening handshake") from last_error
 
     async def close(self) -> None:
         """Close the WebSocket connection."""
