@@ -18,6 +18,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import hashlib
+import http.server
 import httpx
 import paho.mqtt.client as mqtt
 import websockets
@@ -308,7 +310,14 @@ class SdcpClient:
         The exact upload endpoint varies by firmware. We try common candidates
         and return the first successful response.
         """
-        url_base = f"http://{self.ip}"
+        if self._ws:
+            try:
+                return await self._upload_via_sdcp(file_path)
+            except Exception as exc:
+                logger.warning("SDCP upload failed, falling back to HTTP endpoints: %s", exc)
+
+        filename = file_path.split("/")[-1]
+        ports = [80, 3031, 3030]
         endpoints = [
             ("/upload", {"path": dest_dir}, "file"),
             ("/upload", {"dir": dest_dir}, "file"),
@@ -319,28 +328,93 @@ class SdcpClient:
             ("/files/upload", {"path": dest_dir}, "file"),
             ("/api/upload", {"path": dest_dir}, "file"),
             ("/api/files", {"path": dest_dir}, "file"),
+            ("/local/upload", {"path": dest_dir}, "file"),
+            ("/api/local/upload", {"path": dest_dir}, "file"),
+            ("/gcode/upload", {"path": dest_dir}, "file"),
         ]
 
         last_error: Optional[Exception] = None
         attempts: list[str] = []
-        for endpoint, params, field_name in endpoints:
-            try:
-                async with httpx.AsyncClient(timeout=20) as client:
-                    with open(file_path, "rb") as handle:
-                        files = {field_name: (file_path.split("/")[-1], handle, "application/octet-stream")}
-                        response = await client.post(f"{url_base}{endpoint}", params=params, files=files)
-                        attempts.append(f"{endpoint} ({response.status_code})")
-                        if response.status_code in {200, 201}:
-                            return {"endpoint": endpoint, "status": response.status_code, "body": response.text}
-                        last_error = RuntimeError(
-                            f"Upload failed {endpoint}: {response.status_code} {response.text}"
+        for port in ports:
+            url_base = f"http://{self.ip}:{port}" if port != 80 else f"http://{self.ip}"
+            for endpoint, params, field_name in endpoints:
+                try:
+                    async with httpx.AsyncClient(timeout=20) as client:
+                        with open(file_path, "rb") as handle:
+                            files = {field_name: (filename, handle, "application/octet-stream")}
+                            response = await client.post(f"{url_base}{endpoint}", params=params, files=files)
+                            attempts.append(f"{url_base}{endpoint} ({response.status_code})")
+                            if response.status_code in {200, 201}:
+                                return {"endpoint": f"{url_base}{endpoint}", "status": response.status_code, "body": response.text}
+
+                        with open(file_path, "rb") as handle:
+                            response = await client.put(
+                                f"{url_base}{endpoint}",
+                                params={"path": dest_dir, "filename": filename},
+                                content=handle.read(),
+                                headers={"Content-Type": "application/octet-stream"},
+                            )
+                            attempts.append(f"{url_base}{endpoint} PUT ({response.status_code})")
+                            if response.status_code in {200, 201}:
+                                return {"endpoint": f"{url_base}{endpoint}", "status": response.status_code, "body": response.text}
+
+                        response = await client.post(
+                            f"{url_base}{endpoint}",
+                            json={"path": dest_dir, "filename": filename},
                         )
-            except Exception as exc:
-                attempts.append(f"{endpoint} (error)")
-                last_error = exc
+                        attempts.append(f"{url_base}{endpoint} JSON ({response.status_code})")
+                        if response.status_code in {200, 201}:
+                            return {"endpoint": f"{url_base}{endpoint}", "status": response.status_code, "body": response.text}
+
+                        last_error = RuntimeError(
+                            f"Upload failed {url_base}{endpoint}: {response.status_code} {response.text}"
+                        )
+                except Exception as exc:
+                    attempts.append(f"{url_base}{endpoint} (error)")
+                    last_error = exc
 
         attempt_summary = ", ".join(attempts) if attempts else "no attempts"
         raise RuntimeError(f"All upload attempts failed ({attempt_summary})") from last_error
+
+    async def _upload_via_sdcp(self, file_path: str) -> dict[str, Any]:
+        """Upload a file using SDCP Cmd 256 (printer pulls from our HTTP server)."""
+        if not self._mainboard_id:
+            raise RuntimeError("MainboardID not set; call get_device_attributes first")
+
+        file_size = Path(file_path).stat().st_size
+        md5 = self._file_md5(file_path)
+        filename = Path(file_path).name
+
+        with _FileServer(file_path, self._get_local_ip()) as server:
+            url = f"http://{server.host}:{server.port}/{filename}"
+            payload = {
+                "Check": 0,
+                "CleanCache": 1,
+                "Compress": 0,
+                "FileSize": file_size,
+                "Filename": filename,
+                "MD5": md5,
+                "URL": url,
+            }
+            response = await self.send_cmd(256, payload, timeout=10)
+            return {"endpoint": "sdcp:256", "status": "sent", "body": response}
+
+    @staticmethod
+    def _file_md5(file_path: str) -> str:
+        hash_md5 = hashlib.md5()
+        with open(file_path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(8192), b""):
+                hash_md5.update(chunk)
+        return hash_md5.hexdigest()
+
+    def _get_local_ip(self) -> str:
+        """Resolve local IP for serving files to the printer."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.connect((self.ip, 1))
+            return sock.getsockname()[0]
+        finally:
+            sock.close()
 
     async def start_print(
         self,
@@ -367,3 +441,46 @@ class SdcpClient:
     @staticmethod
     def _topic_response(mainboard_id: str) -> str:
         return f"/sdcp/response/{mainboard_id}"
+
+
+class _FileServer:
+    def __init__(self, file_path: str, host: str) -> None:
+        self.file_path = Path(file_path)
+        self.host = host
+        self.port: int = 0
+        self._server: Optional[http.server.ThreadingHTTPServer] = None
+        self._thread: Optional[threading.Thread] = None
+
+    def __enter__(self) -> "_FileServer":
+        handler = self._make_handler(self.file_path)
+        self._server = http.server.ThreadingHTTPServer((self.host, 0), handler)
+        self.port = self._server.server_address[1]
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if self._server:
+            self._server.shutdown()
+            self._server.server_close()
+        if self._thread:
+            self._thread.join(timeout=2)
+
+    @staticmethod
+    def _make_handler(file_path: Path):
+        class Handler(http.server.SimpleHTTPRequestHandler):
+            def do_GET(self):
+                if self.path.lstrip("/") != file_path.name:
+                    self.send_error(404)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(file_path.stat().st_size))
+                self.end_headers()
+                with open(file_path, "rb") as handle:
+                    self.wfile.write(handle.read())
+
+            def log_message(self, format, *args):
+                return
+
+        return Handler
