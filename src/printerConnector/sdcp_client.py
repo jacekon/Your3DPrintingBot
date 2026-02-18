@@ -11,8 +11,11 @@ if str(SDCP_API_PATH) not in sys.path:
     sys.path.append(str(SDCP_API_PATH))
 
 from sdcp_printer import SDCPPrinter  # noqa: E402
-from sdcp_printer.enum import SDCPFrom  # noqa: E402
+from sdcp_printer.enum import SDCPFrom, SDCPCommand  # noqa: E402
 from sdcp_printer.scanner import discover_devices  # noqa: E402
+from sdcp_printer.request import SDCPRequest  # noqa: E402
+
+_PRINTER_NOT_CONNECTED = "Printer is not connected"
 
 
 class SdcpClient:
@@ -47,13 +50,98 @@ class SdcpClient:
     async def refresh_status(self) -> None:
         """Request a status update from the printer."""
         if not self.printer:
-            raise RuntimeError("Printer is not connected")
+            raise RuntimeError(_PRINTER_NOT_CONNECTED)
         await self.printer.refresh_status_async(timeout=self.timeout, sdcp_from=SDCPFrom.PC)
+
+    async def request_status(self) -> None:
+        """Cmd 0: Request status refresh."""
+        await self.refresh_status()
+
+    async def request_attributes(self) -> dict[str, object]:
+        """Cmd 1: Request attributes refresh."""
+        if not self.printer:
+            raise RuntimeError(_PRINTER_NOT_CONNECTED)
+        payload = SDCPRequest.build(self.printer, SDCPCommand.REQUEST_ATTRIBUTES, {}, SDCPFrom.PC)
+        response = await self.printer.send_request_async(payload, timeout=self.timeout)
+        if hasattr(response, "_message_json"):
+            return response._message_json
+        return {"response": response}
+
+    async def start_print(self, filename: str) -> None:
+        """Cmd 128: Start printing (stub)."""
+        raise NotImplementedError("start_print is not implemented yet")
+
+    async def pause_print(self) -> None:
+        """Cmd 129: Pause printing (stub)."""
+        raise NotImplementedError("pause_print is not implemented yet")
+
+    async def stop_print(self) -> None:
+        """Cmd 130: Stop printing (stub)."""
+        raise NotImplementedError("stop_print is not implemented yet")
+
+    async def continue_print(self) -> None:
+        """Cmd 131: Continue/resume printing (stub)."""
+        raise NotImplementedError("continue_print is not implemented yet")
+
+    async def stop_feeding_material(self) -> None:
+        """Cmd 132: Stop feeding material (stub)."""
+        raise NotImplementedError("stop_feeding_material is not implemented yet")
+
+    async def skip_preheating(self) -> None:
+        """Cmd 133: Skip preheating (stub)."""
+        raise NotImplementedError("skip_preheating is not implemented yet")
+
+    async def change_printer_name(self, name: str) -> None:
+        """Cmd 192: Change printer name (stub)."""
+        raise NotImplementedError("change_printer_name is not implemented yet")
+
+    async def retrieve_file_list(self, directory: str = "/local") -> None:
+        """Cmd 258: Retrieve file list (stub)."""
+        raise NotImplementedError("retrieve_file_list is not implemented yet")
+
+    async def batch_delete_files(self, paths: list[str]) -> None:
+        """Cmd 259: Batch delete files (stub)."""
+        raise NotImplementedError("batch_delete_files is not implemented yet")
+
+    async def retrieve_file_details(self, path: str) -> None:
+        """Cmd 260: Retrieve file details (stub)."""
+        raise NotImplementedError("retrieve_file_details is not implemented yet")
+
+    async def retrieve_tasks(self) -> None:
+        """Cmd 320: Retrieve tasks (stub)."""
+        raise NotImplementedError("retrieve_tasks is not implemented yet")
+
+    async def retrieve_task_details(self, task_id: str) -> None:
+        """Cmd 321: Retrieve task details (stub)."""
+        raise NotImplementedError("retrieve_task_details is not implemented yet")
+
+    async def enable_video_stream(self, enabled: bool) -> None:
+        """Cmd 386: Enable video stream (stub)."""
+        raise NotImplementedError("enable_video_stream is not implemented yet")
+
+    async def enable_timelapse(self, enabled: bool) -> None:
+        """Cmd 387: Enable timelapse (stub)."""
+        raise NotImplementedError("enable_timelapse is not implemented yet")
+
+    async def set_light_status(self, enabled: bool) -> dict[str, object]:
+        """Cmd 403: Set light status (Centauri Carbon, unverified payload)."""
+        if not self.printer:
+            raise RuntimeError(_PRINTER_NOT_CONNECTED)
+        payload = SDCPRequest.build(
+            self.printer,
+            SDCPCommand.SET_LIGHT_STATUS,
+            {"LightStatus": {"SecondLight": 1 if enabled else 0, "RgbLight": [0, 0, 0]}},
+            SDCPFrom.PC,
+        )
+        response = await self.printer.send_request_async(payload, timeout=self.timeout)
+        if hasattr(response, "_message_json"):
+            return response._message_json
+        return {"response": response}
 
     def status_snapshot(self) -> dict[str, object]:
         """Return a simple snapshot of the current status."""
         if not self.printer:
-            raise RuntimeError("Printer is not connected")
+            raise RuntimeError(_PRINTER_NOT_CONNECTED)
         return {
             "name": self.printer.name,
             "manufacturer": self.printer.manufacturer,
