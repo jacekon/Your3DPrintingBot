@@ -4,6 +4,7 @@ OrcaSlicer implementation for slicing STL files to G-code.
 import asyncio
 import json
 import logging
+import os
 import shutil
 import tempfile
 import zipfile
@@ -36,7 +37,7 @@ class OrcaSlicer(BaseSlicer):
             orca_bin_path: Path to OrcaSlicer binary. If None, searches common locations
         """
         self.preset_path = preset_path or self._get_default_preset()
-        self.orca_bin = orca_bin_path or self._find_orca_binary()
+        self.orca_bin = orca_bin_path or os.getenv("SLICER_PATH")
         # CLI-normalized presets are generated at runtime into config/printers/.orca_cli_cache.
         # OrcaSlicer CLI requires config JSONs to include a "type" field and rejects bundles directly.
         # We also inject G92 E0 into layer_gcode when relative extrusion is in use.
@@ -104,29 +105,6 @@ class OrcaSlicer(BaseSlicer):
         
         return None
 
-    def _find_orca_binary(self) -> Optional[str]:
-        """
-        Find OrcaSlicer binary in common installation locations.
-        
-        Returns:
-            Path to orca-slicer or orcaslicer-console binary, or None if not found
-        """
-        # Common locations for OrcaSlicer
-        possible_paths = [
-            "/Applications/OrcaSlicer.app/Contents/MacOS/OrcaSlicer",  # macOS app bundle
-            "/Applications/OrcaSlicer.app/Contents/MacOS/orcaslicer",  # alternative name
-            shutil.which("orcaslicer"),  # in PATH
-            shutil.which("orca-slicer"),  # alternative name in PATH
-            shutil.which("OrcaSlicer"),  # capitalized version
-        ]
-        
-        for path in possible_paths:
-            if path and Path(path).exists():
-                logger.info(f"Found OrcaSlicer binary at: {path}")
-                return path
-        
-        logger.warning("OrcaSlicer binary not found in common locations")
-        return None
 
     def _find_orca_datadir(self) -> Optional[Path]:
         """Locate OrcaSlicer user data directory for inheritance resolution."""
